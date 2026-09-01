@@ -178,6 +178,16 @@ echo "lint-docs.sh:"
 case_fails "document naming a file that does not exist" scripts/lint-docs.sh \
   sh -c 'printf "\nSee \`scripts/does-not-exist.sh\` for details.\n" >> README.md'
 
+# The DOCS list is enumerated, not globbed, so a document is covered only if
+# somebody named it. These two sit outside docs/ and were unchecked until they
+# were added by hand -- one case each, because a file silently dropped from the
+# list would otherwise fail nothing.
+case_fails "SETUP-ENVIRONMENTS.md naming a file that does not exist" scripts/lint-docs.sh \
+  sh -c 'printf "\nSee \`scripts/does-not-exist.sh\` for details.\n" >> SETUP-ENVIRONMENTS.md'
+
+case_fails "public-keys README naming a file that does not exist" scripts/lint-docs.sh \
+  sh -c 'printf "\nSee \`scripts/does-not-exist.sh\` for details.\n" >> .github/pdp/public-keys/README.md'
+
 echo
 echo "selftest: $PASS detected, $FAIL missed"
 [ "$FAIL" -eq 0 ] || exit 1
