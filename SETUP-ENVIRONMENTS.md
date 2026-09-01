@@ -26,6 +26,27 @@ that way: the sibling `trusted-base-oci-images` has a `temp-delete/` directory
 holding three private keys, and the only reason that is not an incident is that
 the same ignore rule kept them out of the index.
 
+## The private halves do not stay here
+
+The loop above writes all six files to the repository root. Load each `.key`
+into its environment as `COSIGN_PRIVATE_KEY`, then **move it out of the working
+tree** — one directory per repository, because the keys are not shared between
+them:
+
+```bash
+dest=~/.config/cosign/infrashift/trusted-build-agents
+mkdir -p "$dest" && chmod 700 "$dest"
+mv build.key review.key release.key "$dest/" && chmod 600 "$dest"/*.key
+```
+
+`make -f Ops.mk validate` fails until you do. `scan-secrets.sh` runs gitleaks
+with `--no-git`, so it reads the working tree and `.gitignore` hides nothing from
+it — being un-committable is not the same as being absent. That is the intended
+strictness and not something to allowlist away in `.gitleaks.toml`: the
+repository root is a container build **context**, so a private key sitting in it
+is one `podman build` away from being baked into a layer, which no ignore rule
+prevents.
+
 `review.yml` verifies the build actor's signatures against
 `.github/pdp/public-keys/build.pub`, so **that file must exist before Review can
 pass**. Until the keys are generated, expect Review to fail at the verify step.
