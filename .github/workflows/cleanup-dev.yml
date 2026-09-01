@@ -1,0 +1,46 @@
+# Delete development/ tags for closed PRs.
+#
+# ONLY the development namespace. trusted/ is immutable by policy and quarantine/
+# is evidence -- a quarantined image is a documented failure state that somebody
+# may need to look at months later, not rubbish to be swept up.
+name: Cleanup dev
+
+on:
+  pull_request:
+    types: [closed]
+  schedule:
+    # Weekly, to catch anything a closed-PR run missed.
+    - cron: '17 4 * * 1'
+
+permissions: {}
+
+jobs:
+  cleanup:
+    name: cleanup development namespace
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Delete development tags for this PR
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUM: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          # Refuse anything but `development'. The sibling repo's equivalent
+          # target does the same, and for the same reason: a cleanup script with
+          # a namespace parameter is one typo away from deleting the release.
+          ns=development
+          [ "$ns" = development ] || { echo "refusing to clean $ns" >&2; exit 1; }
+          while read -r image; do
+            pkg="${GITHUB_REPOSITORY#*/}%2F${ns}%2F${image}"
+            gh api "/user/packages/container/${pkg}/versions" --paginate 2>/dev/null \
+              | jq -r --arg pr "pr-${PR_NUM}-" \
+                  '.[] | select(.metadata.container.tags[]? | startswith($pr)) | .id' \
+              | while read -r id; do
+                  gh api -X DELETE "/user/packages/container/${pkg}/versions/${id}" && echo "deleted ${image} version ${id}"
+                done
+          done < <(jq -r '.images | keys[]' versions.json)

@@ -1,0 +1,70 @@
+# The third actor. Promotes development/ to trusted/ or quarantine/, on merge.
+#
+# skopeo copy, never a rebuild: a promotion that rebuilt would produce different
+# bytes from the ones that were scanned, signed and reviewed, and every signature
+# on the way here would be describing something else.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - versions.json
+      - 'Containerfiles/**'
+      - 'rootfs/**'
+
+permissions: {}
+
+jobs:
+  release:
+    name: release
+    runs-on: ubuntu-latest
+    environment: Release-Actor
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Install tools
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq skopeo buildah jq
+
+      - uses: sigstore/cosign-installer@398d4b0eeef1380460a10c8013a76f728fb906ac # v3
+
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Promote and dual-sign
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          src_ns="ghcr.io/${GITHUB_REPOSITORY}/development"
+          dst_ns="ghcr.io/${GITHUB_REPOSITORY}/trusted"
+          sha7="$(git rev-parse --short=7 HEAD)"
+          while read -r image; do
+            manifest="${dst_ns}/${image}:${sha7}"
+            buildah manifest create "$manifest"
+            while read -r arch; do
+              # NO :latest, EVER. A moving tag on an agent image means a pool can
+              # change what it runs without anything recording that it did.
+              src="${src_ns}/${image}:main-${arch}"
+              dst="${dst_ns}/${image}:${sha7}-${arch}"
+              skopeo copy --preserve-digests "docker://${src}" "docker://${dst}"
+              buildah manifest add "$manifest" "docker://${dst}"
+            done < <(jq -r --arg i "$image" '.images[$i].arches[]' versions.json)
+            buildah manifest push --all "$manifest" "docker://${manifest}"
+
+            digest=$(skopeo inspect --format '{{.Digest}}' "docker://${manifest}")
+            # Keyless for public transparency, plus the sovereign release key.
+            # Both, because each answers a question the other cannot: keyless
+            # proves WHO and WHEN to anyone; the key proves it was THIS pipeline.
+            cosign sign --yes "${manifest}@${digest}"
+            cosign sign --yes --tlog-upload=false --key env://COSIGN_PRIVATE_KEY "${manifest}@${digest}"
+            echo "released ${manifest}@${digest}"
+          done < <(jq -r '.images | keys[]' versions.json)

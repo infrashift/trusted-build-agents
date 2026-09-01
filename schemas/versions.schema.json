@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/infrashift/trusted-build-agents/schemas/versions.schema.json",
+  "title": "trusted-build-agents versions.json",
+  "description": "Shape of the sovereign pin file. Validated in pr-gate BEFORE the policy runs, so a malformed entry produces a readable error at PR time rather than a cryptic matrix failure ten minutes later. JSON Schema catches shape; scripts/validate-schema.py catches the cross-references it cannot express, and rego catches meaning.",
+  "type": "object",
+  "required": ["schemaVersion", "destinationRegistry", "bases", "toolchains", "sources", "agents", "images"],
+  "additionalProperties": true,
+
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$",
+      "description": "Always a full sha256 digest. Pins are by digest, never by tag alone."
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "commit": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$",
+      "description": "A 40-hex commit SHA. A tag is NOT a pin: tags move and can be force-pushed; commits cannot."
+    },
+    "anchoredRegex": {
+      "type": "string",
+      "pattern": "^\\^.*\\$$",
+      "description": "Must be anchored with ^ and $. An unanchored track such as 1\\.28\\. also matches 11.28.0, permitting far more than it appears to."
+    },
+    "archDigestMap": {
+      "type": "object",
+      "required": ["amd64", "arm64"],
+      "properties": {
+        "amd64": { "type": "object", "required": ["digest"], "properties": { "digest": { "$ref": "#/$defs/digest" } } },
+        "arm64": { "type": "object", "required": ["digest"], "properties": { "digest": { "$ref": "#/$defs/digest" } } }
+      }
+    }
+  },
+
+  "properties": {
+    "schemaVersion": { "const": 1 },
+
+    "destinationRegistry": {
+      "type": "string",
+      "pattern": "^ghcr\\.io/infrashift/trusted-build-agents$"
+    },
+
+    "bases": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "allOf": [{ "$ref": "#/$defs/archDigestMap" }],
+        "type": "object",
+        "required": ["image", "role", "trustClass", "amd64", "arm64"],
+        "properties": {
+          "image": {
+            "type": "string",
+            "pattern": "^ghcr\\.io/infrashift/trusted-base-images/trusted/",
+            "description": "Runtime bases come from our own trusted base line, never from a vendor registry."
+          },
+          "role": { "enum": ["runtime", "ca-trust-donor"] },
+          "trustClass": { "const": "internal" },
+          "verifyKey": { "type": "string" },
+          "note": { "type": "string" }
+        }
+      }
+    },
+
+    "toolchains": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "allOf": [{ "$ref": "#/$defs/archDigestMap" }],
+        "type": "object",
+        "required": ["image", "tag", "amd64", "arm64"],
+        "properties": {
+          "image": { "type": "string" },
+          "tag": { "type": "string" },
+          "note": { "type": "string" }
+        }
+      }
+    },
+
+    "sources": {
+      "type": "object",
+      "description": "Git sources for every Go tool the agent images carry. Images reference these by key, which is what stops two images building one tool from two different commits.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["url", "track", "ref", "commit"],
+        "properties": {
+          "url": { "type": "string", "format": "uri" },
+          "track": { "$ref": "#/$defs/anchoredRegex" },
+          "ref": { "type": "string" },
+          "commit": { "$ref": "#/$defs/commit" },
+          "note": { "type": "string" }
+        }
+      }
+    },
+
+    "agents": {
+      "type": "object",
+      "description": "Vendor agent distributions that are NOT built from source. The release tarball sha256 is the pin.",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["vendor", "track", "version", "urlTemplate", "amd64", "arm64"],
+        "properties": {
+          "vendor": { "type": "string" },
+          "track": { "$ref": "#/$defs/anchoredRegex" },
+          "version": { "type": "string" },
+          "urlTemplate": {
+            "type": "string",
+            "pattern": "^https://",
+            "description": "Must be https. Contains ${VERSION} and ${ARCH}, expanded by scripts/build-leg.sh."
+          },
+          "amd64": {
+            "type": "object",
+            "required": ["arch", "sha256"],
+            "properties": { "arch": { "type": "string" }, "sha256": { "$ref": "#/$defs/sha256" } }
+          },
+          "arm64": {
+            "type": "object",
+            "required": ["arch", "sha256"],
+            "properties": { "arch": { "type": "string" }, "sha256": { "$ref": "#/$defs/sha256" } }
+          },
+          "note": { "type": "string" }
+        }
+      }
+    },
+
+    "images": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["kind", "enforcement", "base", "toolchain", "agent", "arches", "containerfile", "goTools", "pool", "runtime", "updated", "reason"],
+        "properties": {
+          "kind": {
+            "const": "toolchain",
+            "description": "This repo has one track. Unlike the sibling service-container repo there is no mirror track: an agent image is always built, never copied."
+          },
+          "enforcement": { "enum": ["enforce", "observe"] },
+          "base": { "type": "string" },
+          "toolchain": { "type": "string" },
+          "agent": { "type": "string" },
+          "arches": {
+            "type": "array",
+            "items": { "enum": ["amd64", "arm64"] },
+            "minItems": 1
+          },
+          "containerfile": {
+            "type": "string",
+            "pattern": "^Containerfiles/.+\\.Containerfile$"
+          },
+          "goTools": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Keys into `sources`. Cross-checked by validate-schema.py.",
+            "minItems": 1
+          },
+          "pool": {
+            "type": "string",
+            "description": "The Azure DevOps agent pool this image runs in. In ADO a job chooses a POOL, not an image, so the pool is how the capability boundary in image-contract.json is actually enforced at pipeline time."
+          },
+          "runtime": {
+            "type": "object",
+            "required": ["entrypoint", "user", "runsAsRoot"],
+            "properties": {
+              "entrypoint": {
+                "type": "array",
+                "items": { "type": "string" },
+                "minItems": 1
+              },
+              "user": {
+                "const": 1001,
+                "description": "What the IMAGE declares. An image that needs root at run time says so with runsAsRoot and carries a reason; it does not ship USER 0."
+              },
+              "runsAsRoot": { "type": "boolean" },
+              "runsAsRootReason": { "type": "string", "minLength": 40 }
+            },
+            "allOf": [
+              {
+                "if": { "properties": { "runsAsRoot": { "const": true } }, "required": ["runsAsRoot"] },
+                "then": {
+                  "required": ["runsAsRootReason"],
+                  "description": "Running as root is an exemption, and an exemption with no written reason is a drift nobody can review."
+                }
+              }
+            ]
+          },
+          "updated": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "reason": { "type": "string", "minLength": 10 }
+        }
+      }
+    }
+  }
+}

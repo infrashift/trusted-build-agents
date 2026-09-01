@@ -1,0 +1,42 @@
+# Secret scanning configuration.
+#
+# `useDefault = true` is load-bearing and this file must stay non-trivial: a
+# sibling repo shipped an EMPTY gitleaks config, which scans for nothing and
+# reports a clean run. `make -f Ops.mk validate` asserts both the size of this
+# file and this setting, so the failure mode is a red build rather than a green
+# one that checked nothing.
+title = "trusted-build-agents"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "azure-devops-pat"
+description = "Azure DevOps personal access token"
+# ADO PATs are 52 chars of base32-ish alphabet. The agent registers with one, so
+# a token pasted into a pipeline template or a test fixture is the most likely
+# secret this repository will ever meet.
+regex = '''(?i)(azp_token|system\.accesstoken|pat)['"[:space:]]*[:=]['"[:space:]]*([a-z2-7]{52})'''
+tags = ["azure-devops", "token"]
+
+[[rules]]
+id = "nexus-oauth-client-secret"
+description = "Nexus OAuth2 client secret used by the publish pool"
+# The value must not START with `?`: `${SFD_OCI_CLIENT_SECRET:?msg}` is bash
+# parameter expansion asserting the variable is SET, and matching it means the
+# scanner cries wolf on the very line that proves the secret is not hardcoded.
+# Go's RE2 has no lookahead, so the exclusion is a character class.
+regex = '''(?i)(sfd_oci_client_secret|nexus_client_secret)['"[:space:]]*[:=]['"[:space:]]*([^\s'"?][^\s'"]{15,})'''
+tags = ["nexus", "secret"]
+
+[allowlist]
+description = "Documentation and shell guards naming the variables without values"
+# Without regexTarget the patterns below are matched against the extracted
+# SECRET, never the surrounding line -- so they silently allowlist nothing. A
+# config whose exclusions do not fire produces noise on every run, and a scanner
+# everyone has learned to ignore is worse than no scanner.
+regexTarget = "line"
+regexes = [
+  '''SFD_OCI_CLIENT_SECRET:\?''',
+  '''AZP_TOKEN:\?''',
+]

@@ -1,0 +1,11 @@
+# Private key material. Never relax this: the sibling repo has a temp-delete/
+# directory holding three cosign private keys, and the only reason that is not an
+# incident is that the same pattern kept them out of the index.
+*.key
+*.pem
+!**/public-keys/*.pub
+
+# Local build scratch
+/dist/
+/.oci/
+*.oci.tar

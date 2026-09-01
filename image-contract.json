@@ -1,0 +1,139 @@
+{
+  "_comment": [
+    "WHAT EACH AGENT IMAGE MUST AND MUST NOT CONTAIN, as data.",
+    "",
+    "Adapted from containerfiles/stage-contract.json in the sshadowforge forge,",
+    "and it exists here for the same reason it exists there: `microdnf' resolves a",
+    "dependency CLOSURE. `the build agent cannot reach a registry' is true only",
+    "until something drags skopeo in as a transitive dependency of something else,",
+    "and nothing would notice. This file turns a property that is currently",
+    "structural into an executable assertion, checked against the bytes of a built",
+    "image rather than against the intent of a Containerfile.",
+    "",
+    "IT RUNS BEFORE PUBLISH, NOT AFTER. The Nexus OCI repository is ALLOW_ONCE: a",
+    "tag that has been pushed can never be rewritten, so an image found bad after",
+    "publication has permanently burned its name. Checking at build time costs",
+    "seconds.",
+    "",
+    "The forbidden lists are not symmetric decoration. build/skopeo and",
+    "publish/kaniko are the two halves of one split and each names the other."
+  ],
+
+  "_floor": [
+    "Every agent image is entitled to assume these and every rootfs script uses",
+    "them. The Azure Pipelines agent itself needs bash, tar, gzip and curl to",
+    "unpack and update tasks; git is on the floor because a pipeline that cannot",
+    "check out its own sources is not an agent."
+  ],
+  "floor_required": [
+    "bash", "sh", "cat", "sha256sum", "cut", "sort", "head", "tr",
+    "basename", "find", "xargs", "grep", "sed", "tar", "gzip", "curl", "git"
+  ],
+
+  "_images": [
+    "required  -- the tools this image exists to run, beyond the floor.",
+    "forbidden -- what its capability boundary says it must not be able to do.",
+    "",
+    "`entrypoint' is asserted too. All agent images entrypoint on start-agent.sh:",
+    "an image that registered with Azure DevOps by some other path would not",
+    "deregister on exit, and dead agents accumulate in the pool until the next",
+    "--replace registration races them."
+  ],
+  "images": {
+    "azdo-agent-build": {
+      "pool": "Trusted-Build",
+      "required": ["kaniko-executor", "envbuilder", "git", "kaniko-chroot.sh", "kaniko-build.sh", "envbuilder-build.sh"],
+      "forbidden": ["skopeo", "cosign", "regctl", "crane", "oras", "registry", "go", "gcc", "podman", "buildah", "docker"],
+      "entrypoint": ["/usr/local/bin/start-agent.sh"],
+      "note": "Runs repository-supplied pipeline YAML. Holds NO registry credential and carries no client that could use one. kaniko is invoked with --no-push unconditionally; the flag is discipline, the absent skopeo is the device."
+    },
+    "azdo-agent-publish": {
+      "pool": "Trusted-Publish",
+      "required": ["skopeo", "registry", "serve-layer-cache.sh", "push-oci.sh"],
+      "forbidden": ["kaniko-executor", "envbuilder", "cosign", "go", "gcc", "podman", "buildah", "docker"],
+      "entrypoint": ["/usr/local/bin/start-agent.sh"],
+      "note": "Holds the Nexus OCI OAuth2 client. CANNOT AUTHOR WHAT IT MOVES -- no kaniko, no envbuilder, no compiler. Carries `registry' only to re-serve the filesystem layout envbuilder wrote, on 127.0.0.1, for the length of one skopeo copy; see docs/envbuilder-output.md. Carries no cosign: signing is the other half of the split and is phase 2."
+    }
+  },
+
+  "_scripts": [
+    "The rootfs scripts are checked as SOURCE on every image, not just where they",
+    "run. `scripts_must_not_invoke' is the stronger of the two assertions in this",
+    "file: it fails on the line that would have broken rather than on the image",
+    "that happened to expose it.",
+    "",
+    "The build scripts must never NAME a push flag. kaniko is perfectly capable of",
+    "pushing -- that is what --destination is for -- and the build agent must never",
+    "let it."
+  ],
+  "scripts_must_not_invoke": ["skopeo", "cosign", "docker", "podman"],
+  "scripts_checked": [
+    "rootfs/common/usr/local/bin/start-agent.sh",
+    "rootfs/azdo-agent-build/usr/local/bin/kaniko-chroot.sh",
+    "rootfs/azdo-agent-build/usr/local/bin/kaniko-build.sh",
+    "rootfs/azdo-agent-build/usr/local/bin/envbuilder-build.sh"
+  ],
+  "_script_assertions": [
+    "Per-script, because the two builders fail in opposite directions.",
+    "",
+    "kaniko-build.sh: --no-push must be present and must be UNPARAMETERISABLE.",
+    "Note that --destination is NOT forbidden and must not be: kaniko needs a name",
+    "for the image it assembles even when it is not pushing it, and the forge",
+    "passes both (golden/scripts/image.sh). Forbidding --destination would forbid a",
+    "flag kaniko requires. What matters is that --no-push is a literal, so no",
+    "environment variable a pipeline controls can turn the push back on.",
+    "",
+    "envbuilder-build.sh is the inverse and the reason is worth writing down.",
+    "envbuilder has no --no-push: producing a distributable image REQUIRES",
+    "ENVBUILDER_PUSH_IMAGE=true plus a cache repo. Setting",
+    "ENVBUILDER_LAYER_CACHE_DIR makes envbuilder start its own in-process registry",
+    "over that directory and OVERRIDE the cache repo with it (envbuilder.go:384-394,",
+    "`Overriding cache repo with local registry...'), so the push is to 127.0.0.1",
+    "and needs no credential. The assertion is therefore not `never push' but",
+    "`never name a remote cache repo, and always set the layer cache dir that",
+    "redirects the push to loopback'. See docs/envbuilder-output.md.",
+    "",
+    "THE PATTERNS ARE REGEXES, NOT SUBSTRINGS, and that was found by running",
+    "scripts/selftest-linters.sh. `--no-push' as a plain substring is satisfied by",
+    "`--no-push-cache', which appears two lines below it -- so deleting the real",
+    "--no-push flag left the assertion passing. The lookahead is what makes it an",
+    "assertion about a FLAG rather than about a sequence of characters."
+  ],
+  "script_assertions": {
+    "rootfs/azdo-agent-build/usr/local/bin/kaniko-build.sh": {
+      "must_match": ["--no-push(?![-\\w])"],
+      "must_not_match": ["--no-push=false", "NO_PUSH", "no_push", "\\$\\{KANIKO_PUSH"]
+    },
+    "rootfs/azdo-agent-build/usr/local/bin/envbuilder-build.sh": {
+      "_why": [
+        "The first version of this assertion forbade ENVBUILDER_CACHE_REPO",
+        "outright, on the reading that ENVBUILDER_LAYER_CACHE_DIR alone redirects",
+        "the push to loopback. It does -- but envbuilder rejects an empty cache",
+        "repo at line 141, BEFORE it applies that override at line 386, so the",
+        "variable has to be set. The assertion is therefore not `never name a",
+        "cache repo' but `never name one that is not loopback': what matters is",
+        "that the push cannot reach a real registry, not that a variable is unset."
+      ],
+      "must_match": [
+        "ENVBUILDER_LAYER_CACHE_DIR",
+        "/.envbuilder/bin/envbuilder",
+        "CACHE_PLACEHOLDER=\"localhost:",
+        "KANIKO_DIR=/.envbuilder"
+      ],
+      "must_not_match": ["ENVBUILDER_CACHE_REPO=(?![\"$])", "FORCE_SAFE"]
+    },
+    "rootfs/azdo-agent-build/usr/local/bin/kaniko-chroot.sh": {
+      "_why": [
+        "kaniko derives its working directory from proc/self/exe and adds that",
+        "DIRECTORY to its ignore list. An executor staged at the chroot root",
+        "makes the ignored directory `/', so kaniko ignores the entire",
+        "filesystem: the build succeeds, reports a digest, and every layer is",
+        "EMPTY. Nothing else in this repository would catch that -- the image",
+        "is well-formed, just void. Staging under /kaniko/ is the fix, and this",
+        "assertion is what stops it drifting back."
+      ],
+      "must_match": ["/kaniko/executor"],
+      "must_not_match": ["exe\"\\s*$", "proc/self/exe\"?\\s*$"]
+    }
+  }
+}

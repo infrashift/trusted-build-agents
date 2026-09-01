@@ -1,0 +1,18 @@
+# Pinned tool versions.
+#
+# Every tool is version-pinned and installers verify checksums where upstream
+# publishes them. The sibling repos learned this the hard way: installing syft,
+# grype and opa from unpinned `latest` URLs into the very job that holds the
+# build signing key is a remote code execution path straight into the most
+# privileged step in the pipeline.
+#
+# cosign is pinned to v2 to stay interoperable with trusted-base-images and
+# trusted-service-containers. v3 defaults to --new-bundle-format=true and writes
+# attestations as OCI referrers, while v2 writes legacy sha256-<digest>.att tags.
+# Migrate all three repos together, never one at a time.
+
+COSIGN_VERSION=v2.6.1
+SYFT_VERSION=v1.51.0
+GRYPE_VERSION=v0.117.0
+OPA_VERSION=v1.19.1
+GITLEAKS_VERSION=v8.30.1

@@ -1,0 +1,117 @@
+{
+  "schemaVersion": 1,
+  "destinationRegistry": "ghcr.io/infrashift/trusted-build-agents",
+
+  "_comment": [
+    "SOVEREIGN SOURCE OF TRUTH. Every digest, commit and tarball hash in this",
+    "repository lives here and nowhere else; scripts/lint-containerfiles.sh fails",
+    "on a sha256: literal appearing in a Containerfile.",
+    "",
+    "A `track' is an ANCHORED regex bounding where a pin may legally move. It is a",
+    "policy decision: widening one needs its own reviewed PR, never a drive-by edit",
+    "inside another change. Unanchored `1\\.28\\.' also matches 11.28.0."
+  ],
+
+  "bases": {
+    "ubi9-minimal": {
+      "image": "ghcr.io/infrashift/trusted-base-images/trusted/ubi9-minimal",
+      "role": "runtime",
+      "trustClass": "internal",
+      "amd64": { "digest": "sha256:8073bce76a1842ce7559e6870f88b7473ff14d0ee2f0af0d49fe44749a17e4bf" },
+      "arm64": { "digest": "sha256:b458b9a9b9c90f7d579a353cb4c3f7e9e71f90698a2521a657197b7c32644e5a" },
+      "note": "Runtime base for every agent image. NOT ubi9-micro: the Azure Pipelines agent needs a package manager, git, tar and libicu, and micro has none of them. ubi9-minimal already ships /etc/pki/ca-trust, so unlike the sibling repo there is no separate CA-donor stage -- the bundle is asserted in place instead."
+    }
+  },
+
+  "toolchains": {
+    "go1.26": {
+      "image": "docker.io/library/golang",
+      "tag": "1.26-trixie",
+      "amd64": { "digest": "sha256:ba4c8df3f74321b0d5c44911ccb694c8156340b684eed1fae09a9bd9f7a82b4d" },
+      "arm64": { "digest": "sha256:0c746b0e0628a3237db3c58fbaa6342a0d76a15042591871bf99dc36cac41030" },
+      "note": "Ships Go 1.26.7 with GOTOOLCHAIN=local. kaniko's go.mod names `toolchain go1.26.5' and module mode ENFORCES it, so the image Go must be >= 1.26.5; 1.26.7 satisfies it and no separate toolchain download is needed. envbuilder needs only go 1.24.10. Same pin as trusted-service-containers, deliberately."
+    }
+  },
+
+  "sources": {
+    "kaniko": {
+      "url": "https://github.com/osscontainertools/kaniko",
+      "track": "^v1\\.28\\.[0-9]+$",
+      "ref": "v1.28.3",
+      "commit": "e0092dbc17e6aad98efc244c88c2c6d11d5a829a",
+      "note": "The community fork succeeding the archived GoogleContainerTools/kaniko. Same pin the Guix channel uses (guix-channel/infrashift/packages/kaniko.scm), so the forge and the agents build one kaniko."
+    },
+    "envbuilder": {
+      "url": "https://github.com/coder/envbuilder",
+      "track": "^v1\\.3\\.[0-9]+$",
+      "ref": "v1.3.0",
+      "commit": "da95f80ea89fc615b85441da107c29004061df6a",
+      "note": "READ THIS BEFORE ASSUMING ONE KANIKO. envbuilder does NOT link the kaniko pinned above: its go.mod carries `replace github.com/GoogleContainerTools/kaniko => github.com/coder/kaniko v0.0.0-20251107135632-b20ff58093d8'. The standalone executor and envbuilder's embedded builder are two different kanikos and always will be. Recorded here so the difference is a documented fact rather than a silent surprise when their behaviour diverges."
+    },
+    "distribution": {
+      "url": "https://github.com/distribution/distribution",
+      "track": "^v3\\.1\\.[0-9]+$",
+      "ref": "v3.1.1",
+      "commit": "9a8d98b679740cd514aa7e7d84d23d442a5ef54c",
+      "note": "Publish image only. Re-serves the filesystem layout envbuilder wrote so skopeo can copy out of it -- see docs/envbuilder-output.md. envbuilder embeds distribution v3.0.0-alpha.1 as a library; the on-disk driver layout (docker/registry/v2/...) is unchanged in v3.1, which is what makes re-serving it safe."
+    }
+  },
+
+  "agents": {
+    "azdo": {
+      "vendor": "microsoft/azure-pipelines-agent",
+      "track": "^5\\.[0-9]+\\.[0-9]+$",
+      "version": "5.278.0",
+      "urlTemplate": "https://download.agent.dev.azure.com/agent/${VERSION}/vsts-agent-linux-${ARCH}-${VERSION}.tar.gz",
+      "amd64": {
+        "arch": "x64",
+        "sha256": "daaee663e6557a98bb18e0d8e1d148110cca61230a68c61887748432c21a63e1"
+      },
+      "arm64": {
+        "arch": "arm64",
+        "sha256": "a2f6c6c346a1fe89932b106ccdb2b048a2ef81fe9720860f2b5d789364fc4b8f"
+      },
+      "note": "The agent is .NET/Node and is not built from source: the release tarball sha256 IS the pin, and it is verified with sha256sum -c before anything is unpacked. Hashes are published by Microsoft in the release notes for the tag named above."
+    }
+  },
+
+  "images": {
+    "azdo-agent-build": {
+      "kind": "toolchain",
+      "enforcement": "observe",
+      "base": "ubi9-minimal",
+      "toolchain": "go1.26",
+      "agent": "azdo",
+      "arches": ["amd64", "arm64"],
+      "containerfile": "Containerfiles/azdo-agent-build.Containerfile",
+      "goTools": ["kaniko", "envbuilder"],
+      "pool": "Trusted-Build",
+      "runtime": {
+        "entrypoint": ["/usr/local/bin/start-agent.sh"],
+        "user": 1001,
+        "runsAsRoot": true,
+        "runsAsRootReason": "kaniko chroot(2)s into the scratch root it unpacks the base image over and chowns files to arbitrary uids while assembling layers. The default capability set grants container-root exactly that (CAP_SYS_CHROOT) and grants an unprivileged uid none of it. No privileged flag, no added capability, no host mount, no device. See docs/kaniko-chroot.md."
+      },
+      "updated": "2026-09-01",
+      "reason": "Initial pin. Runs Azure DevOps pipeline jobs that build OCI images with kaniko and devcontainer images with envbuilder. Carries no registry client and no credential by design."
+    },
+    "azdo-agent-publish": {
+      "kind": "toolchain",
+      "enforcement": "observe",
+      "base": "ubi9-minimal",
+      "toolchain": "go1.26",
+      "agent": "azdo",
+      "arches": ["amd64", "arm64"],
+      "containerfile": "Containerfiles/azdo-agent-publish.Containerfile",
+      "goTools": ["distribution"],
+      "pool": "Trusted-Publish",
+      "runtime": {
+        "entrypoint": ["/usr/local/bin/start-agent.sh"],
+        "user": 1001,
+        "runsAsRoot": false
+      },
+      "updated": "2026-09-01",
+      "reason": "Initial pin. Holds the Nexus OCI credential and pushes what the build pool staged. Carries no kaniko, no envbuilder and no compiler, so it cannot author what it moves."
+    }
+  }
+}
