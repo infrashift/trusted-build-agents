@@ -17,7 +17,8 @@ set -euo pipefail
 python3 - <<'PY'
 import os, re, sys
 
-DOCS = ['CLAUDE.md', 'README.md']
+DOCS = ['CLAUDE.md', 'README.md', 'SETUP-ENVIRONMENTS.md',
+        '.github/pdp/public-keys/README.md']
 for root, _, files in os.walk('docs'):
     DOCS += [os.path.join(root, f) for f in files if f.endswith('.md')]
 

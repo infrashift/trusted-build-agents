@@ -118,8 +118,12 @@ either un-retryable or silently wrong.
 
 ## Documentation follows the code
 
-`scripts/lint-docs.sh` fails if a backticked path in `CLAUDE.md`, `README.md` or
-anything under `docs/` does not resolve on disk. Write the document after the
-thing it describes exists. The sibling repo shipped cards citing four files that
-were never created, and prose naming a path nobody can open reads as evidence
-that the thing exists.
+`scripts/lint-docs.sh` fails if a backticked path in `CLAUDE.md`, `README.md`,
+`SETUP-ENVIRONMENTS.md`, `.github/pdp/public-keys/README.md` or anything under
+`docs/` does not resolve on disk. That list is enumerated, not globbed: a new
+document outside `docs/` is unchecked until you add it, and adding it earns a
+`selftest-linters.sh` case, or nothing notices when it falls back out.
+
+Write the document after the thing it describes exists. The sibling repo
+shipped cards citing four files that were never created, and prose naming a
+path nobody can open reads as evidence that the thing exists.
