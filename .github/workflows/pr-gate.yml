@@ -26,14 +26,42 @@ jobs:
       - name: Install validation tools
         run: |
           set -euo pipefail
-          # shellcheck and opa are the only two not already on the runner.
-          # Versions come from tools.lock; nothing here installs from `latest'.
+          # shellcheck, opa and gitleaks are not on the runner. Versions come
+          # from tools.lock; nothing here installs from `latest'.
           # shellcheck disable=SC1091
           source tools.lock
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck jq
           curl -fsSL -o /tmp/opa "https://openpolicyagent.org/downloads/${OPA_VERSION}/opa_linux_amd64_static"
           sudo install -m 0755 /tmp/opa /usr/local/bin/opa
+          # gitleaks is what stands between a private key and a public
+          # repository, so it is verified before it runs, not after. Hash first,
+          # unpack second: an archive that fails its checksum is never opened.
+          curl -fsSL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION#v}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
           python3 -m pip install --quiet jsonschema
+
+      # A tool that is absent fails `make validate' with "not installed", which
+      # is how gitleaks stayed uninstalled here while the step above claimed
+      # otherwise. Assert the versions the lock file names are the versions on
+      # PATH, so a silent substitution is a failure and not a surprise later.
+      - name: Assert the pinned tools are the ones on PATH
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source tools.lock
+          for tool in gitleaks opa shellcheck; do
+            command -v "$tool" >/dev/null || { echo "error: $tool is not on PATH" >&2; exit 1; }
+          done
+          got="v$(gitleaks version)"
+          [ "$got" = "$GITLEAKS_VERSION" ] || {
+            echo "error: gitleaks is $got, tools.lock pins $GITLEAKS_VERSION" >&2; exit 1; }
+          got="v$(opa version | awk '/^Version:/ {print $2}')"
+          [ "$got" = "$OPA_VERSION" ] || {
+            echo "error: opa is $got, tools.lock pins $OPA_VERSION" >&2; exit 1; }
+          echo "OK: gitleaks $GITLEAKS_VERSION and opa $OPA_VERSION are on PATH"
 
       - name: Validate
         run: make -f Ops.mk validate

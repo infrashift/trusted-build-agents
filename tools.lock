@@ -16,3 +16,7 @@ SYFT_VERSION=v1.51.0
 GRYPE_VERSION=v0.117.0
 OPA_VERSION=v1.19.1
 GITLEAKS_VERSION=v8.30.1
+# Upstream publishes a checksums file, so the tarball is verified rather than
+# trusted. linux_x64 is the only asset any runner here pulls; a second platform
+# needs a second pin, not a looser check.
+GITLEAKS_SHA256=551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
