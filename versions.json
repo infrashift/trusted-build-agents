@@ -17,8 +17,8 @@
       "image": "ghcr.io/infrashift/trusted-base-images/trusted/ubi9-minimal",
       "role": "runtime",
       "trustClass": "internal",
-      "amd64": { "digest": "sha256:8073bce76a1842ce7559e6870f88b7473ff14d0ee2f0af0d49fe44749a17e4bf" },
-      "arm64": { "digest": "sha256:b458b9a9b9c90f7d579a353cb4c3f7e9e71f90698a2521a657197b7c32644e5a" },
+      "amd64": { "digest": "sha256:419f18caf8425f5c95c8f5aadd7b05dc947a85e4ae9c41ac9299dcd80036fc24" },
+      "arm64": { "digest": "sha256:073a8431f9610056ef5ba271a28e0d836de1fdd7f29bda13cf97dc2cb8642fcc" },
       "note": "Runtime base for every agent image. NOT ubi9-micro: the Azure Pipelines agent needs a package manager, git, tar and libicu, and micro has none of them. ubi9-minimal already ships /etc/pki/ca-trust, so unlike the sibling repo there is no separate CA-donor stage -- the bundle is asserted in place instead."
     }
   },
@@ -27,9 +27,9 @@
     "go1.26": {
       "image": "docker.io/library/golang",
       "tag": "1.26-trixie",
-      "amd64": { "digest": "sha256:ba4c8df3f74321b0d5c44911ccb694c8156340b684eed1fae09a9bd9f7a82b4d" },
-      "arm64": { "digest": "sha256:0c746b0e0628a3237db3c58fbaa6342a0d76a15042591871bf99dc36cac41030" },
-      "note": "Ships Go 1.26.7 with GOTOOLCHAIN=local. kaniko's go.mod names `toolchain go1.26.5' and module mode ENFORCES it, so the image Go must be >= 1.26.5; 1.26.7 satisfies it and no separate toolchain download is needed. envbuilder needs only go 1.24.10. Same pin as trusted-service-containers, deliberately."
+      "amd64": { "digest": "sha256:4ddd76d158c062213aaf055513809cdac05a445b2db3a0f12dbb624ed2e577d9" },
+      "arm64": { "digest": "sha256:220fc85e089da8f6ebdb609cfe9c952e4c0784d525679419ca2bbd53f5a6cdfe" },
+      "note": "Ships Go 1.26.10 with GOTOOLCHAIN=local. kaniko's go.mod names `toolchain go1.26.5' and module mode ENFORCES it, so the image Go must be >= 1.26.5; 1.26.10 satisfies it and no separate toolchain download is needed. envbuilder needs only go 1.24.10. Same pin as trusted-service-containers, deliberately."
     }
   },
 
